@@ -6,10 +6,8 @@ A remote, Streamable HTTP MCP bridge between ChatGPT-compatible MCP clients and 
 
 This initial version intentionally exposes **read-only** tools:
 
-- `directus_ping` — verify Directus authentication
-- `list_collections` — list collections visible to the API identity
-- `list_fields` — inspect a collection's fields
-- `read_items` — read up to 50 records per call
+- Public `/mcp` endpoint: exposes only `bridge_ping`, a harmless connection test that does not access Directus data
+- Protected `/secure-mcp` endpoint: exposes `directus_ping`, `list_collections`, `list_fields`, and `read_items` behind `MCP_BEARER_TOKEN`
 
 Writes, deletes, schema mutations, and flow execution are intentionally not included in this first version. Add them only after secure deployment and read-only validation.
 
@@ -18,7 +16,9 @@ Writes, deletes, schema mutations, and flow execution are intentionally not incl
 - Keep `DIRECTUS_TOKEN` and `MCP_BEARER_TOKEN` in Coolify environment variables only.
 - Do not commit `.env` or real credentials.
 - Use a dedicated Directus service user with the minimum necessary read-only permissions.
-- `MCP_BEARER_TOKEN` is a simple bearer-secret authentication layer suitable for initial controlled testing. Confirm that the ChatGPT custom MCP connection UI supports passing an Authorization bearer token before deploying; if it requires a different auth flow, implement that explicitly rather than removing authentication.
+- The public `/mcp` endpoint intentionally exposes only a harmless `bridge_ping` tool. It does not read Directus data.
+- `/secure-mcp` requires `Authorization: Bearer <MCP_BEARER_TOKEN>` and contains the Directus data tools.
+- Do not move data tools onto the public endpoint or remove bearer authentication from `/secure-mcp`.
 - Put the service behind HTTPS in Coolify and expose `/mcp` as the MCP endpoint. `/healthz` is a non-sensitive health check.
 - Do not use the Directus administrator token.
 
@@ -39,8 +39,8 @@ Writes, deletes, schema mutations, and flow execution are intentionally not incl
 3. Set the service domain and enable HTTPS.
 4. Add the three required environment variables in Coolify; never add secrets to GitHub.
 5. Deploy, then check `https://YOUR-MCP-DOMAIN/healthz`.
-6. Configure ChatGPT's custom MCP server with `https://YOUR-MCP-DOMAIN/mcp` and bearer authentication only if supported by the UI.
-7. Confirm that `directus_ping`, `list_collections`, and `read_items` appear and work before enabling any write operations.
+6. For a no-auth connectivity test, configure ChatGPT with `https://YOUR-MCP-DOMAIN/mcp`; it should expose only `bridge_ping`.
+7. Directus data tools are on `https://YOUR-MCP-DOMAIN/secure-mcp` and require bearer authentication. If ChatGPT does not support bearer-token authentication in its UI, do not expose those tools without authentication.
 
 ## Important transport note
 
