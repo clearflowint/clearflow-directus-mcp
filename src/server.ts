@@ -63,6 +63,18 @@ async function directusFetch(path: string, init: RequestInit = {}): Promise<unkn
   try { return JSON.parse(body) as unknown; } catch { throw new Error('Directus returned an unexpected response format'); }
 }
 
+function createPublicMcpServer() {
+  const server = new McpServer({ name: 'ClearFlow MCP Connection Test', version: '0.1.0' });
+  server.registerTool('bridge_ping', {
+    title: 'Test MCP connection',
+    description: 'Return a harmless status response to verify the public MCP transport. This tool does not access Directus or reveal data.',
+    inputSchema: {},
+  }, async () => ({
+    content: [{ type: 'text', text: JSON.stringify({ connected: true, mode: 'public-test-only' }) }],
+  }));
+  return server;
+}
+
 function createMcpServer() {
   const server = new McpServer({ name: 'ClearFlow Directus MCP', version: '0.1.0' });
   server.registerTool('directus_ping', {
@@ -105,41 +117,51 @@ function createMcpServer() {
   return server;
 }
 
-const transports = new Map<string, StreamableHTTPServerTransport>();
-app.all('/mcp', async (req, res) => {
-  if (!isAuthorized(req.header('authorization'))) {
-    res.setHeader('WWW-Authenticate', 'Bearer');
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-  try {
-    let transport: StreamableHTTPServerTransport;
-    const sessionId = req.header('mcp-session-id');
-    if (sessionId && transports.has(sessionId)) {
-      transport = transports.get(sessionId)!;
-    } else if (!sessionId && req.method === 'POST' && isInitializeRequest(req.body)) {
-      let createdTransport!: StreamableHTTPServerTransport;
-      createdTransport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (id) => { transports.set(id, createdTransport); },
-      });
-      transport = createdTransport;
-      transport.onclose = () => {
-        const id = transport.sessionId;
-        if (id) transports.delete(id);
-      };
-      const server = createMcpServer();
-      await server.connect(transport);
-    } else {
-      res.status(400).json({ error: 'Invalid MCP session or initialize request' });
+function createMcpHandler(
+  requiresBearer: boolean,
+  serverFactory: () => McpServer,
+): express.RequestHandler {
+  const transports = new Map<string, StreamableHTTPServerTransport>();
+  return async (req, res) => {
+    if (requiresBearer && !isAuthorized(req.header('authorization'))) {
+      res.setHeader('WWW-Authenticate', 'Bearer');
+      res.status(401).json({ error: 'Unauthorized' });
       return;
     }
-    await transport.handleRequest(req, res, req.body);
-  } catch (error) {
-    console.error('MCP request failed:', error instanceof Error ? error.message : 'unknown error');
-    if (!res.headersSent) res.status(500).json({ error: 'MCP request failed' });
-  }
-});
+    try {
+      let transport: StreamableHTTPServerTransport;
+      const sessionId = req.header('mcp-session-id');
+      if (sessionId && transports.has(sessionId)) {
+        transport = transports.get(sessionId)!;
+      } else if (!sessionId && req.method === 'POST' && isInitializeRequest(req.body)) {
+        let createdTransport!: StreamableHTTPServerTransport;
+        createdTransport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          onsessioninitialized: (id) => { transports.set(id, createdTransport); },
+        });
+        transport = createdTransport;
+        transport.onclose = () => {
+          const id = createdTransport.sessionId;
+          if (id) transports.delete(id);
+        };
+        const server = serverFactory();
+        await server.connect(transport);
+      } else {
+        res.status(400).json({ error: 'Invalid MCP session or initialize request' });
+        return;
+      }
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      console.error('MCP request failed:', error instanceof Error ? error.message : 'unknown error');
+      if (!res.headersSent) res.status(500).json({ error: 'MCP request failed' });
+    }
+  };
+}
+
+// Public endpoint intentionally exposes only a harmless connection-test tool.
+// Directus data tools remain available only on /secure-mcp with bearer authentication.
+app.all('/mcp', createMcpHandler(false, createPublicMcpServer));
+app.all('/secure-mcp', createMcpHandler(true, createMcpServer));
 
 app.listen(port, host, () => {
   console.log(`ClearFlow Directus MCP listening on ${host}:${port}`);
