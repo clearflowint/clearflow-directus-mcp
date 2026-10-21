@@ -72,6 +72,18 @@ function createPublicMcpServer() {
   }, async () => ({
     content: [{ type: 'text', text: JSON.stringify({ connected: true, mode: 'public-test-only' }) }],
   }));
+  server.registerTool('directus_status', {
+    title: 'Check Directus connection',
+    description: 'Check whether the configured Directus API token is accepted. Returns only a connected boolean and never reveals account details or records.',
+    inputSchema: {},
+  }, async () => {
+    try {
+      await directusFetch('/users/me?fields=id');
+      return { content: [{ type: 'text', text: JSON.stringify({ directusConnected: true }) }] };
+    } catch {
+      return { content: [{ type: 'text', text: JSON.stringify({ directusConnected: false }) }] };
+    }
+  });
   return server;
 }
 
