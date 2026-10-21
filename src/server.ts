@@ -1,5 +1,5 @@
 import express from 'express';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -42,7 +42,7 @@ function isAuthorized(header: string | undefined): boolean {
   const actual = Buffer.from(header.slice(7));
   const expected = Buffer.from(bearerToken);
   if (actual.length !== expected.length) return false;
-  return actual.equals(expected);
+  return timingSafeEqual(actual, expected);
 }
 
 async function directusFetch(path: string, init: RequestInit = {}): Promise<unknown> {
