@@ -10,6 +10,7 @@ const directusToken = requiredEnv('DIRECTUS_TOKEN');
 const bearerToken = requiredEnv('MCP_BEARER_TOKEN');
 const port = parsePort(process.env.PORT ?? '3000');
 const host = process.env.HOST ?? '0.0.0.0';
+let lastPublicRoleProbeAt = 0;
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -134,7 +135,6 @@ function createPublicMcpServer() {
   // A single, tightly scoped public smoke test for role read/write capability.
   // It creates one disabled probe role, reads it back, and always attempts cleanup.
   // No caller-supplied role data or arbitrary write path is accepted.
-  let lastPublicRoleProbeAt = 0;
   server.registerTool('test_role_read_write', {
     title: 'Test Directus role read and write',
     description: 'Run a bounded read/write smoke test using the bridge server-side Directus credential: creates a disabled temporary role, reads it back, and deletes it. No MCP bearer token is required for this public test tool. Does not change existing roles or permissions. Globally rate-limited to one run per minute.',
