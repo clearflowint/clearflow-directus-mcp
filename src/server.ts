@@ -131,6 +131,72 @@ function createPublicMcpServer() {
     }
     return { content: [{ type: 'text', text: JSON.stringify(checks) }] };
   });
+  // A single, tightly scoped public smoke test for role read/write capability.
+  // It creates one disabled probe role, reads it back, and always attempts cleanup.
+  // No caller-supplied role data or arbitrary write path is accepted.
+  let lastPublicRoleProbeAt = 0;
+  server.registerTool('test_role_read_write', {
+    title: 'Test Directus role read and write',
+    description: 'Run a bounded read/write smoke test using the bridge server-side Directus credential: creates a disabled temporary role, reads it back, and deletes it. No MCP bearer token is required for this public test tool. Does not change existing roles or permissions. Globally rate-limited to one run per minute.',
+    inputSchema: {},
+  }, async () => {
+    const now = Date.now();
+    if (now - lastPublicRoleProbeAt < 60_000) {
+      return { content: [{ type: 'text', text: JSON.stringify({ ok: false, rateLimited: true, message: 'Role probe is limited to one run per minute.' }) }] };
+    }
+    lastPublicRoleProbeAt = now;
+
+    const probeName = `ClearFlow MCP Probe ${randomUUID()}`;
+    let roleId: string | number | undefined;
+    const result: Record<string, unknown> = {
+      credentialSource: 'bridge server-side DIRECTUS_TOKEN',
+      mcpBearerRequired: false,
+      created: false,
+      readBack: false,
+      deleted: false,
+    };
+    try {
+      const created = await directusFetch('/roles', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: probeName,
+          icon: 'verified_user',
+          description: 'Temporary ClearFlow MCP connectivity probe; safe to delete.',
+          admin_access: false,
+          app_access: false,
+        }),
+      }) as { data?: { id?: string | number } };
+      roleId = created?.data?.id;
+      if (roleId === undefined || roleId === null) {
+        result.createError = 'Directus create response did not include a role ID.';
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      }
+      result.created = true;
+      result.roleId = roleId;
+      try {
+        const readBack = await directusFetch(`/roles/${encodeURIComponent(String(roleId))}?fields=id,name,admin_access,app_access`) as { data?: { id?: string | number; name?: string } };
+        result.readBack = readBack?.data?.id !== undefined && readBack?.data?.name === probeName;
+        if (!result.readBack) result.readError = 'Role was returned but did not match the temporary probe role.';
+      } catch (error) {
+        result.readError = error instanceof Error ? error.message : 'Role read-back failed.';
+      }
+    } catch (error) {
+      result.createError = error instanceof Error ? error.message : 'Role creation failed.';
+    } finally {
+      if (roleId !== undefined && roleId !== null) {
+        try {
+          await directusFetch(`/roles/${encodeURIComponent(String(roleId))}`, { method: 'DELETE' });
+          result.deleted = true;
+        } catch (error) {
+          result.deleteError = error instanceof Error ? error.message : 'Temporary role cleanup failed.';
+          result.cleanupRequired = true;
+        }
+      }
+    }
+    result.ok = result.created === true && result.readBack === true && result.deleted === true;
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  });
+
   server.registerTool('list_permissions', {
     title: 'List Directus permissions',
     description: 'Read up to 100 permission rules to inspect role access configuration. This tool does not change permissions.',
