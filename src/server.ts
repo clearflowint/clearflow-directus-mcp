@@ -111,6 +111,26 @@ function createPublicMcpServer() {
     const result = await directusFetch('/roles?limit=100&fields=id,name,icon,description,admin_access,app_access');
     return { content: [{ type: 'text', text: JSON.stringify(result) }] };
   });
+  server.registerTool('directus_admin_check', {
+    title: 'Check Directus administrative read access',
+    description: 'Read-only diagnostic that checks whether the configured Directus token can read roles and permissions. Does not create, modify, or delete anything.',
+    inputSchema: {},
+  }, async () => {
+    const checks: Record<string, unknown> = {};
+    try {
+      const roles = await directusFetch('/roles?limit=100&fields=id,name,admin_access,app_access') as { data?: unknown[] };
+      checks.roles = { ok: true, count: Array.isArray(roles?.data) ? roles.data.length : null, data: roles?.data ?? roles };
+    } catch (error) {
+      checks.roles = { ok: false, error: error instanceof Error ? error.message : 'Request failed' };
+    }
+    try {
+      const permissions = await directusFetch('/permissions?limit=100&fields=id,collection,action,role') as { data?: unknown[] };
+      checks.permissions = { ok: true, count: Array.isArray(permissions?.data) ? permissions.data.length : null };
+    } catch (error) {
+      checks.permissions = { ok: false, error: error instanceof Error ? error.message : 'Request failed' };
+    }
+    return { content: [{ type: 'text', text: JSON.stringify(checks) }] };
+  });
   server.registerTool('list_permissions', {
     title: 'List Directus permissions',
     description: 'Read up to 100 permission rules to inspect role access configuration. This tool does not change permissions.',
@@ -189,6 +209,54 @@ function createMcpServer() {
     };
   });
 
+  server.registerTool('create_role', {
+    title: 'Create Directus role',
+    description: 'Create a Directus role. Available only through authenticated /secure-mcp; changes access configuration.',
+    inputSchema: { name: z.string().min(1).max(100), icon: z.string().max(100).optional(), description: z.string().max(500).optional(), admin_access: z.boolean().optional(), app_access: z.boolean().optional() },
+  }, async (input) => {
+    const result = await directusFetch('/roles', { method: 'POST', body: JSON.stringify(input) });
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  });
+  server.registerTool('update_role', {
+    title: 'Update Directus role',
+    description: 'Update a Directus role by ID. Available only through authenticated /secure-mcp; changes access configuration.',
+    inputSchema: { id: z.string().min(1).max(128), name: z.string().min(1).max(100).optional(), icon: z.string().max(100).optional(), description: z.string().max(500).optional(), admin_access: z.boolean().optional(), app_access: z.boolean().optional() },
+  }, async ({ id, ...body }) => {
+    const result = await directusFetch(`/roles/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) });
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  });
+  server.registerTool('delete_role', {
+    title: 'Delete Directus role',
+    description: 'Permanently delete a Directus role by ID. Available only through authenticated /secure-mcp. Use only when explicitly authorized.',
+    inputSchema: { id: z.string().min(1).max(128) },
+  }, async ({ id }) => {
+    const result = await directusFetch(`/roles/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  });
+  server.registerTool('create_permission', {
+    title: 'Create Directus permission rule',
+    description: 'Create a Directus permission rule. Available only through authenticated /secure-mcp; may grant data access.',
+    inputSchema: { collection: z.string().min(1).max(128), action: z.enum(['create','read','update','delete','share']), role: z.string().min(1).max(128).nullable().optional(), permissions: z.record(z.unknown()).optional(), validation: z.record(z.unknown()).nullable().optional(), presets: z.record(z.unknown()).nullable().optional(), fields: z.array(z.string()).optional() },
+  }, async (input) => {
+    const result = await directusFetch('/permissions', { method: 'POST', body: JSON.stringify(input) });
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  });
+  server.registerTool('update_permission', {
+    title: 'Update Directus permission rule',
+    description: 'Update a Directus permission rule by ID. Available only through authenticated /secure-mcp; may grant data access.',
+    inputSchema: { id: z.union([z.string(), z.number()]), collection: z.string().min(1).max(128).optional(), action: z.enum(['create','read','update','delete','share']).optional(), role: z.string().min(1).max(128).nullable().optional(), permissions: z.record(z.unknown()).optional(), validation: z.record(z.unknown()).nullable().optional(), presets: z.record(z.unknown()).nullable().optional(), fields: z.array(z.string()).optional() },
+  }, async ({ id, ...body }) => {
+    const result = await directusFetch(`/permissions/${encodeURIComponent(String(id))}`, { method: 'PATCH', body: JSON.stringify(body) });
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  });
+  server.registerTool('delete_permission', {
+    title: 'Delete Directus permission rule',
+    description: 'Permanently delete a Directus permission rule by ID. Available only through authenticated /secure-mcp. Use only when explicitly authorized.',
+    inputSchema: { id: z.union([z.string(), z.number()]) },
+  }, async ({ id }) => {
+    const result = await directusFetch(`/permissions/${encodeURIComponent(String(id))}`, { method: 'DELETE' });
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  });
   server.registerTool('read_items', {
     title: 'Read Directus records',
     description: 'Read a bounded page of records from one collection. Directus permissions still apply.',
