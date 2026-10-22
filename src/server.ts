@@ -84,6 +84,42 @@ function createPublicMcpServer() {
       return { content: [{ type: 'text', text: JSON.stringify({ directusConnected: false }) }] };
     }
   });
+
+  // Public read-only diagnostics are intentionally limited to Directus metadata.
+  // They do not expose item records or any write-capable API operation.
+  server.registerTool('list_collections', {
+    title: 'List Directus collections',
+    description: 'Read collection metadata using the configured Directus token. Does not read collection records or modify data.',
+    inputSchema: {},
+  }, async () => {
+    const result = await directusFetch('/collections?limit=100');
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  });
+  server.registerTool('list_fields', {
+    title: 'List fields for a collection',
+    description: 'Read field metadata for one collection using the configured Directus token. Does not read collection records or modify data.',
+    inputSchema: { collection: z.string().min(1).max(128).regex(/^[A-Za-z0-9_]+$/) },
+  }, async ({ collection }) => {
+    const result = await directusFetch(`/fields/${encodeURIComponent(collection)}`);
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  });
+  server.registerTool('list_roles', {
+    title: 'List Directus roles',
+    description: 'Read role metadata to verify which roles exist. This tool does not change roles or permissions.',
+    inputSchema: {},
+  }, async () => {
+    const result = await directusFetch('/roles?limit=100&fields=id,name,icon,description,admin_access,app_access');
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  });
+  server.registerTool('list_permissions', {
+    title: 'List Directus permissions',
+    description: 'Read up to 100 permission rules to inspect role access configuration. This tool does not change permissions.',
+    inputSchema: {},
+  }, async () => {
+    const result = await directusFetch('/permissions?limit=100&fields=id,collection,action,role,permissions,validation,presets,fields');
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  });
+
   return server;
 }
 
