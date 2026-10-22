@@ -113,6 +113,46 @@ function createMcpServer() {
     const result = await directusFetch(`/fields/${encodeURIComponent(collection)}`);
     return { content: [{ type: 'text', text: JSON.stringify(result) }] };
   });
+  server.registerTool('directus_request', {
+    title: 'Execute Directus API request',
+    description:
+      'Perform an authenticated Directus REST API request with the configured service token. Supports GET, POST, PATCH, PUT, and DELETE across Directus API endpoints, including records and administrative endpoints, subject to the token permissions. This tool can modify or permanently delete data and change access controls; use only for explicitly authorized operations.',
+    inputSchema: {
+      method: z.enum(['GET', 'POST', 'PATCH', 'PUT', 'DELETE']),
+      path: z.string().min(2).max(2048).regex(/^\\/(?!\\/)[A-Za-z0-9_./?=&%:+,-]*$/),
+      body: z.unknown().optional(),
+    },
+  }, async ({ method, path, body }) => {
+    // Accept only relative Directus API paths; never allow an arbitrary host.
+    if (
+      !path.startsWith('/') ||
+      path.startsWith('//') ||
+      path.includes('\\\\') ||
+      /[\\u0000-\\u001f#]/.test(path) ||
+      /(^|\\/)\\.\\.?($|\\/|\\?)/.test(path)
+    ) {
+      throw new Error('Invalid Directus API path. Provide a relative API path beginning with one slash.');
+    }
+
+    const resolved = new URL(path.slice(1), `${apiBase}/`);
+    if (resolved.origin !== directusUrl.origin) {
+      throw new Error('Directus API path must remain on the configured Directus host.');
+    }
+
+    const init: RequestInit = { method };
+    if (body !== undefined) {
+      if (method === 'GET') {
+        throw new Error('GET requests cannot include a body.');
+      }
+      init.body = JSON.stringify(body);
+    }
+
+    const result = await directusFetch(path, init);
+    return {
+      content: [{ type: 'text', text: JSON.stringify(result) }],
+    };
+  });
+
   server.registerTool('read_items', {
     title: 'Read Directus records',
     description: 'Read a bounded page of records from one collection. Directus permissions still apply.',
