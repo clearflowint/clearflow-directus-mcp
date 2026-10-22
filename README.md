@@ -2,46 +2,60 @@
 
 A remote, Streamable HTTP MCP bridge between ChatGPT-compatible MCP clients and a Directus REST API.
 
-## Current scope
+## Endpoints and tools
 
-This initial version intentionally exposes **read-only** tools:
+### Public `/mcp`
 
-- Public `/mcp` endpoint: exposes `bridge_ping` plus `directus_status`, which returns only whether the configured Directus token is accepted; it never returns records or account details
-- Protected `/secure-mcp` endpoint: exposes `directus_ping`, `list_collections`, `list_fields`, and `read_items` behind `MCP_BEARER_TOKEN`
+Intentionally limited to harmless connection checks:
+- `bridge_ping` — confirms MCP transport connectivity only.
+- `directus_status` — checks whether the configured Directus token is accepted and returns only a boolean.
 
-Writes, deletes, schema mutations, and flow execution are intentionally not included in this first version. Add them only after secure deployment and read-only validation.
+This endpoint does not expose records or administrative operations.
 
-## Security
+### Protected `/secure-mcp`
 
-- Keep `DIRECTUS_TOKEN` and `MCP_BEARER_TOKEN` in Coolify environment variables only.
-- Do not commit `.env` or real credentials.
-- Use a dedicated Directus service user with the minimum necessary read-only permissions.
-- The public `/mcp` endpoint exposes `bridge_ping` and `directus_status`. The latter checks the Directus token but returns only a boolean; it never returns account details or records.
-- `/secure-mcp` requires `Authorization: Bearer <MCP_BEARER_TOKEN>` and contains the Directus data tools.
-- Do not move data tools onto the public endpoint or remove bearer authentication from `/secure-mcp`.
-- Put the service behind HTTPS in Coolify and expose `/mcp` as the MCP endpoint. `/healthz` is a non-sensitive health check.
-- Do not use the Directus administrator token.
+Requires `Authorization: Bearer <MCP_BEARER_TOKEN>`. Exposes:
+- `directus_ping`
+- `list_collections`
+- `list_fields`
+- `read_items`
+- `directus_request` — authenticated Directus REST requests using `GET`, `POST`, `PATCH`, `PUT`, or `DELETE`, across Directus API endpoints. This includes data and administrative endpoints such as roles, permissions, users, collections, and fields, subject to the configured Directus token's permissions.
+
+**Warning:** `directus_request` is a privileged administrative tool. It can change access controls, modify records and schema, and permanently delete data. Use it only for operations explicitly authorized by the owner. Verify the method, endpoint, target IDs, and payload before each write. Keep it on `/secure-mcp`; never expose it on public `/mcp`.
+
+## Security requirements
+
+- Keep `DIRECTUS_TOKEN` and `MCP_BEARER_TOKEN` in Coolify environment variables only. Never commit credentials or paste them into chat.
+- Use a dedicated Directus service account for the bridge, not a personal administrator token.
+- If full role/schema administration is required, grant that dedicated account the minimum Directus administrative access that supports the required tasks. A read-only token cannot perform writes.
+- Choose a long, random `MCP_BEARER_TOKEN`; configure the MCP client to send it as an Authorization Bearer token.
+- Expose the service over HTTPS in Coolify.
+- Do not move data/admin tools onto the public endpoint or remove bearer authentication from `/secure-mcp`.
+- Review Directus audit logs and restrict access to the MCP endpoint to trusted clients.
+- This tool uses the Directus permissions associated with `DIRECTUS_TOKEN`; it does not bypass Directus authorization.
 
 ## Environment variables
 
 | Variable | Required | Description |
 |---|---|---|
-| `DIRECTUS_URL` | Yes | Base URL, e.g. `https://clearflow-data.duckdns.org` |
-| `DIRECTUS_TOKEN` | Yes | Directus API token for a dedicated read-only service user |
-| `MCP_BEARER_TOKEN` | Yes | Long random secret sent by the MCP client as `Authorization: Bearer …` |
+| `DIRECTUS_URL` | Yes | Directus base URL, e.g. `https://clearflow-data.duckdns.org` |
+| `DIRECTUS_TOKEN` | Yes | API token for the dedicated Directus service account |
+| `MCP_BEARER_TOKEN` | Yes | Long random secret required by `/secure-mcp` |
 | `HOST` | No | Defaults to `0.0.0.0` |
 | `PORT` | No | Defaults to `3000` |
 
 ## Deploy with Coolify
 
-1. Create a new resource from this public Git repository.
+1. Create or update the resource from this Git repository.
 2. Choose Dockerfile deployment.
-3. Set the service domain and enable HTTPS.
-4. Add the three required environment variables in Coolify; never add secrets to GitHub.
-5. Deploy, then check `https://YOUR-MCP-DOMAIN/healthz`.
-6. For a no-auth connectivity test, configure ChatGPT with `https://YOUR-MCP-DOMAIN/mcp`; it should expose `bridge_ping` and `directus_status`.
-7. Directus data tools are on `https://YOUR-MCP-DOMAIN/secure-mcp` and require bearer authentication. If ChatGPT does not support bearer-token authentication in its UI, do not expose those tools without authentication.
+3. Configure the HTTPS service domain.
+4. Add the environment variables in Coolify; never add secrets to Git.
+5. Deploy and check `https://YOUR-MCP-DOMAIN/healthz`.
+6. Configure the public test endpoint at `https://YOUR-MCP-DOMAIN/mcp` if only testing transport.
+7. Configure the protected endpoint at `https://YOUR-MCP-DOMAIN/secure-mcp` with bearer authentication to access Directus tools.
+8. Verify the protected MCP handshake and call `directus_ping` before attempting any write.
+9. Test a harmless read, then a narrowly scoped authorized write. Do not test with destructive requests against production data.
 
-## Important transport note
+## Implementation status
 
-This bridge uses the MCP SDK Streamable HTTP transport. It has not yet been tested against the user's ChatGPT account or Coolify deployment. Treat it as a starter implementation, not a verified production service. Before production use, run a dependency/security review and end-to-end MCP handshake test, and consider adding session limits, rate limits, structured audit logging, and OAuth if required by the client.
+The bridge uses the MCP SDK Streamable HTTP transport. The protected `directus_request` tool enables broad Directus API access only to an authenticated MCP caller and only within the configured token's Directus permissions. The repository change itself does not configure Coolify, create a Directus service account, or prove that the deployed endpoint is connected. Perform an end-to-end handshake and permission test after deployment.
