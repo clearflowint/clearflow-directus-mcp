@@ -119,7 +119,7 @@ function createMcpServer() {
       'Perform an authenticated Directus REST API request with the configured service token. Supports GET, POST, PATCH, PUT, and DELETE across Directus API endpoints, including records and administrative endpoints, subject to the token permissions. This tool can modify or permanently delete data and change access controls; use only for explicitly authorized operations.',
     inputSchema: {
       method: z.enum(['GET', 'POST', 'PATCH', 'PUT', 'DELETE']),
-      path: z.string().min(2).max(2048).regex(/^\\/(?!\\/)[A-Za-z0-9_./?=&%:+,-]*$/),
+      path: z.string().min(2).max(2048).regex(/^\/(?!\/)[A-Za-z0-9_./?=&%:+,-]*$/),
       body: z.unknown().optional(),
     },
   }, async ({ method, path, body }) => {
@@ -127,9 +127,9 @@ function createMcpServer() {
     if (
       !path.startsWith('/') ||
       path.startsWith('//') ||
-      path.includes('\\\\') ||
-      /[\\u0000-\\u001f#]/.test(path) ||
-      /(^|\\/)\\.\\.?($|\\/|\\?)/.test(path)
+      path.includes('\\') ||
+      /[\u0000-\u001f#]/.test(path) ||
+      /(^|\/)\.\.?($|\/|\?)/.test(path)
     ) {
       throw new Error('Invalid Directus API path. Provide a relative API path beginning with one slash.');
     }
